@@ -16,6 +16,9 @@
 
     <!-- heic2any (Client-side HEIC conversion) - Using jsdelivr stable version -->
     <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+    
+    <!-- JSZip (For zipping multiple PDFs) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <script>
         tailwind.config = {
@@ -164,6 +167,21 @@
                     <div id="images-file-list" class="space-y-2 hidden">
                         <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">選択された画像</h3>
                         <ul id="images-list-items" class="grid grid-cols-2 md:grid-cols-3 gap-3"></ul>
+                    </div>
+                    
+                    <!-- Output Mode Selection (New) -->
+                    <div id="images-options" class="bg-gray-50 p-4 rounded-lg border border-gray-100 hidden">
+                         <p class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">出力形式を選択</p>
+                         <div class="flex flex-col sm:flex-row gap-4">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="image-output-mode" value="merge" checked class="accent-tiffany w-4 h-4">
+                                <span class="text-sm text-gray-700">1つのPDFに結合</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="image-output-mode" value="individual" class="accent-tiffany w-4 h-4">
+                                <span class="text-sm text-gray-700">個別のPDF (ZIPで保存)</span>
+                            </label>
+                        </div>
                     </div>
 
                     <div class="pt-4 border-t border-gray-100">
@@ -412,6 +430,7 @@
 
         function handleImageFiles(fileList) {
             const listContainer = document.getElementById('images-file-list');
+            const optionsContainer = document.getElementById('images-options');
             
             Array.from(fileList).forEach(file => {
                 const isHeic = file.name.toLowerCase().endsWith('.heic') || file.type === 'image/heic';
@@ -426,6 +445,7 @@
 
             if (imageFiles.length > 0) {
                 listContainer.classList.remove('hidden');
+                optionsContainer.classList.remove('hidden'); // Show output options
                 document.getElementById('btn-images').disabled = false;
             }
             renderImageList();
@@ -478,6 +498,7 @@
             renderImageList();
             if (imageFiles.length === 0) {
                 document.getElementById('images-file-list').classList.add('hidden');
+                document.getElementById('images-options').classList.add('hidden');
                 document.getElementById('btn-images').disabled = true;
             }
         }
@@ -486,11 +507,23 @@
             if (imageFiles.length === 0) return;
             setLoading('btn-images', true, 'images-btn-text', '変換中 (HEIC変換は時間がかかります)...');
 
+            // モード取得
+            const mode = document.querySelector('input[name="image-output-mode"]:checked').value;
             let failedFiles = [];
+            
+            // ZIPモードの場合の準備
+            const zip = (mode === 'individual') ? new JSZip() : null;
+            let successCount = 0;
+
+            // マージモードの場合は1つのPDF、個別モードの場合は都度作成
+            let mergePdfDoc = null;
+            if (mode === 'merge') {
+                const { PDFDocument } = PDFLib;
+                mergePdfDoc = await PDFDocument.create();
+            }
 
             try {
                 const { PDFDocument } = PDFLib;
-                const pdfDoc = await PDFDocument.create();
 
                 for (let i = 0; i < imageFiles.length; i++) {
                     const file = imageFiles[i];
@@ -502,6 +535,10 @@
                         let arrayBuffer;
                         const isHeic = file.name.toLowerCase().endsWith('.heic') || file.type === 'image/heic';
 
+                        // Individualモードなら毎回新しいPDFを作成
+                        const currentPdfDoc = (mode === 'merge') ? mergePdfDoc : await PDFDocument.create();
+
+                        // 画像処理 (HEIC -> JPG, その他 -> Embed)
                         if (isHeic) {
                             try {
                                 const convertedBlob = await heic2any({
@@ -511,19 +548,19 @@
                                 });
                                 const blobToEmbed = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
                                 arrayBuffer = await blobToEmbed.arrayBuffer();
-                                imageEmbed = await pdfDoc.embedJpg(arrayBuffer);
+                                imageEmbed = await currentPdfDoc.embedJpg(arrayBuffer);
                             } catch (heicErr) {
                                 console.warn(`heic2any failed for ${file.name}, trying fallbacks...`, heicErr);
                                 try {
                                     arrayBuffer = await imageToPngBytes(file);
-                                    imageEmbed = await pdfDoc.embedPng(arrayBuffer);
+                                    imageEmbed = await currentPdfDoc.embedPng(arrayBuffer);
                                 } catch (nativeErr) {
                                     try {
                                         arrayBuffer = await file.arrayBuffer();
                                         try {
-                                            imageEmbed = await pdfDoc.embedJpg(arrayBuffer);
+                                            imageEmbed = await currentPdfDoc.embedJpg(arrayBuffer);
                                         } catch(e) {
-                                            imageEmbed = await pdfDoc.embedPng(arrayBuffer);
+                                            imageEmbed = await currentPdfDoc.embedPng(arrayBuffer);
                                         }
                                     } catch (finalErr) {
                                         throw new Error(`HEIC変換失敗`);
@@ -532,27 +569,36 @@
                             }
                         } else if (file.type === 'image/jpeg') {
                             arrayBuffer = await file.arrayBuffer();
-                            imageEmbed = await pdfDoc.embedJpg(arrayBuffer);
+                            imageEmbed = await currentPdfDoc.embedJpg(arrayBuffer);
                         } else if (file.type === 'image/png') {
                             arrayBuffer = await file.arrayBuffer();
-                            imageEmbed = await pdfDoc.embedPng(arrayBuffer);
+                            imageEmbed = await currentPdfDoc.embedPng(arrayBuffer);
                         } else {
                             arrayBuffer = await imageToPngBytes(file);
-                            imageEmbed = await pdfDoc.embedPng(arrayBuffer);
+                            imageEmbed = await currentPdfDoc.embedPng(arrayBuffer);
                         }
 
-                        const page = pdfDoc.addPage([imageEmbed.width, imageEmbed.height]);
+                        const page = currentPdfDoc.addPage([imageEmbed.width, imageEmbed.height]);
                         page.drawImage(imageEmbed, {
                             x: 0,
                             y: 0,
                             width: imageEmbed.width,
                             height: imageEmbed.height,
                         });
+                        
+                        // 個別モードならここでZIPに追加
+                        if (mode === 'individual') {
+                            const pdfBytes = await currentPdfDoc.save();
+                            // ファイル名重複回避のため、シンプルな名前に
+                            const fileName = file.name.replace(/\.[^/.]+$/, "") + ".pdf";
+                            zip.file(fileName, pdfBytes);
+                        }
 
                         if (li) {
                             li.classList.remove('ring-tiffany');
                             li.classList.add('ring-2', 'ring-green-400');
                         }
+                        successCount++;
 
                     } catch (e) {
                         console.error(`Skipping file ${file.name}:`, e);
@@ -569,16 +615,23 @@
                     }
                 }
 
-                if (pdfDoc.getPageCount() > 0) {
-                    const pdfBytes = await pdfDoc.save();
-                    downloadBlob(pdfBytes, 'images_converted.pdf');
-                } 
+                // 保存処理
+                if (successCount > 0) {
+                    if (mode === 'merge') {
+                         const pdfBytes = await mergePdfDoc.save();
+                         downloadBlob(pdfBytes, 'images_converted.pdf');
+                    } else {
+                         // ZIPを生成してダウンロード
+                         const zipContent = await zip.generateAsync({type:"blob"});
+                         downloadBlob(zipContent, "images_converted.zip");
+                    }
+                }
                 
                 if (failedFiles.length > 0) {
                     setTimeout(() => {
                         alert(`完了しましたが、以下のファイルは変換できずにスキップされました:\n${failedFiles.join('\n')}\n`);
                     }, 500);
-                } else if (pdfDoc.getPageCount() === 0) {
+                } else if (successCount === 0) {
                     alert('PDF化できる画像がありませんでした。');
                 }
 
@@ -891,7 +944,7 @@
         }
 
         function downloadBlob(bytes, filename) {
-            const blob = new Blob([bytes], { type: 'application/pdf' });
+            const blob = new Blob([bytes], { type: filename.endsWith('.zip') ? 'application/zip' : 'application/pdf' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
             link.download = filename;
