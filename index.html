@@ -16,9 +16,20 @@
         .pdf-card { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
         .pdf-card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
         #drop-area.dragover { border-color: #3b82f6; background-color: #eff6ff; transform: scale(1.01); }
+        .modal-enter { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
+
+    <!-- メッセージモーダル -->
+    <div id="modal-container" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl modal-enter">
+            <h3 id="modal-title" class="text-lg font-bold text-gray-900 mb-2">通知</h3>
+            <p id="modal-body" class="text-gray-600 mb-6"></p>
+            <button onclick="closeModal()" class="w-full bg-slate-900 text-white py-2 rounded-xl font-bold hover:bg-slate-800 transition">閉じる</button>
+        </div>
+    </div>
 
     <!-- ナビゲーション & タブ -->
     <nav class="bg-white shadow-sm sticky top-0 z-50">
@@ -42,24 +53,24 @@
                     </button>
                 </div>
             </div>
-            <div class="flex space-x-8 h-12">
-                <button onclick="switchTab('merge')" id="tab-merge" class="tab-item active-tab flex items-center px-1">結合・編集</button>
-                <button onclick="switchTab('split')" id="tab-split" class="tab-item flex items-center px-1">分割・抽出</button>
-                <button onclick="switchTab('number')" id="tab-number" class="tab-item flex items-center px-1">ページ番号付与</button>
-                <button onclick="switchTab('convert')" id="tab-convert" class="tab-item flex items-center px-1">画像から変換</button>
+            <div class="flex space-x-8 h-12 overflow-x-auto no-scrollbar">
+                <button onclick="switchTab('merge')" id="tab-merge" class="tab-item active-tab flex items-center px-1 whitespace-nowrap text-sm">結合・編集</button>
+                <button onclick="switchTab('split')" id="tab-split" class="tab-item flex items-center px-1 whitespace-nowrap text-sm">分割・抽出</button>
+                <button onclick="switchTab('number')" id="tab-number" class="tab-item flex items-center px-1 whitespace-nowrap text-sm">ページ番号付与</button>
+                <button onclick="switchTab('convert')" id="tab-convert" class="tab-item flex items-center px-1 whitespace-nowrap text-sm">画像から変換</button>
             </div>
         </div>
     </nav>
 
     <main class="max-w-7xl mx-auto p-6">
         
-        <!-- オプションパネル (各機能用) -->
+        <!-- オプションパネル -->
         <div id="options-panel" class="mb-6 bg-white p-4 rounded-xl shadow-sm border border-gray-100 hidden">
             <!-- ページ番号オプション -->
             <div id="opt-number" class="hidden flex flex-wrap gap-6 items-center">
                 <div class="flex flex-col">
                     <label class="text-xs text-gray-500 mb-1">配置位置</label>
-                    <select id="num-pos" class="border rounded p-1 text-sm outline-none bg-white">
+                    <select id="num-pos" class="border rounded p-1.5 text-sm outline-none bg-white">
                         <option value="bottom-center">下中央</option>
                         <option value="bottom-right">下右</option>
                         <option value="bottom-left">下左</option>
@@ -68,14 +79,14 @@
                 </div>
                 <div class="flex flex-col">
                     <label class="text-xs text-gray-500 mb-1">形式</label>
-                    <select id="num-format" class="border rounded p-1 text-sm outline-none bg-white">
+                    <select id="num-format" class="border rounded p-1.5 text-sm outline-none bg-white">
                         <option value="simple">1, 2, ...</option>
                         <option value="ratio">1 / 5, 2 / 5, ...</option>
                     </select>
                 </div>
                 <div class="flex flex-col">
                     <label class="text-xs text-gray-500 mb-1">フォントサイズ</label>
-                    <input type="number" id="num-size" value="12" class="border rounded p-1 text-sm w-16 outline-none">
+                    <input type="number" id="num-size" value="12" class="border rounded p-1.5 text-sm w-16 outline-none">
                 </div>
                 <div class="flex items-center gap-2 mt-4">
                     <input type="checkbox" id="num-start-one" checked>
@@ -89,11 +100,11 @@
                     <div class="flex items-center gap-4">
                         <label class="flex items-center gap-2 cursor-pointer">
                             <input type="radio" name="convert-mode" value="merge" checked>
-                            <span class="text-sm">1つのPDFに結合</span>
+                            <span class="text-sm font-medium">1つのPDFに結合</span>
                         </label>
                         <label class="flex items-center gap-2 cursor-pointer">
                             <input type="radio" name="convert-mode" value="single">
-                            <span class="text-sm">各画像を個別に変換</span>
+                            <span class="text-sm font-medium">各画像を個別に変換</span>
                         </label>
                     </div>
                 </div>
@@ -110,7 +121,7 @@
                     </svg>
                 </div>
                 <p class="text-lg font-semibold text-gray-700">ここにファイルをドロップ</p>
-                <p class="text-sm text-gray-400">PDF, JPG, PNGに対応（クラウドから直接移動も可）</p>
+                <p class="text-sm text-gray-400">PDF, JPG, PNGに対応（ドライブから直接移動可）</p>
             </div>
         </div>
 
@@ -135,7 +146,7 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
         let currentTab = 'merge';
-        let pages = []; // { id, type, sourceData, pageNum, thumbnail, fileName }
+        let pages = []; // { id, type, sourceData(ArrayBuffer), pageNum, thumbnail(URL), fileName, mimeType }
 
         const fileInput = document.getElementById('file-input');
         const dropArea = document.getElementById('drop-area');
@@ -146,13 +157,22 @@
         const emptyHint = document.getElementById('empty-hint');
         const optionsPanel = document.getElementById('options-panel');
 
+        // モーダル管理
+        function showMessage(title, body) {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-body').innerText = body;
+            document.getElementById('modal-container').classList.remove('hidden');
+        }
+        function closeModal() {
+            document.getElementById('modal-container').classList.add('hidden');
+        }
+
         // タブ切り替え
         function switchTab(tab) {
             currentTab = tab;
             document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active-tab'));
             document.getElementById(`tab-${tab}`).classList.add('active-tab');
             
-            // オプションパネル表示制御
             optionsPanel.classList.toggle('hidden', !['number', 'convert'].includes(tab));
             document.getElementById('opt-number').classList.toggle('hidden', tab !== 'number');
             document.getElementById('opt-convert').classList.toggle('hidden', tab !== 'convert');
@@ -171,7 +191,7 @@
             mainActionBtn.innerHTML = `<span>${labels[currentTab]}</span>`;
         }
 
-        // 並び替え初期化
+        // 並び替え
         new Sortable(pageGrid, {
             animation: 150,
             ghostClass: 'ghost',
@@ -203,16 +223,20 @@
             emptyHint.classList.add('hidden');
             
             for (const file of fileList) {
-                if (file.type === 'application/pdf') {
-                    await processPDF(file);
-                } else if (file.type.startsWith('image/')) {
-                    await processImage(file);
+                try {
+                    if (file.type === 'application/pdf') {
+                        await processPDF(file);
+                    } else if (file.type.startsWith('image/')) {
+                        await processImage(file);
+                    }
+                } catch (e) {
+                    console.error(e);
+                    showMessage('読み込みエラー', `ファイル「${file.name}」の読み込みに失敗しました。`);
                 }
             }
             
             renderGrid();
             loading.classList.add('hidden');
-            mainActionBtn.disabled = pages.length === 0;
         }
 
         async function processPDF(file) {
@@ -239,19 +263,17 @@
         }
 
         async function processImage(file) {
-            return new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    pages.push({
-                        id: Math.random().toString(36).substr(2, 9),
-                        type: 'image',
-                        sourceData: e.target.result,
-                        thumbnail: e.target.result,
-                        fileName: file.name
-                    });
-                    resolve();
-                };
-                reader.readAsDataURL(file);
+            const buffer = await file.arrayBuffer();
+            const blob = new Blob([buffer], { type: file.type });
+            const thumbUrl = URL.createObjectURL(blob);
+            
+            pages.push({
+                id: Math.random().toString(36).substr(2, 9),
+                type: 'image',
+                sourceData: buffer,
+                thumbnail: thumbUrl,
+                fileName: file.name,
+                mimeType: file.type
             });
         }
 
@@ -263,12 +285,12 @@
                 div.dataset.id = page.id;
                 div.innerHTML = `
                     <div class="aspect-[3/4] bg-gray-50 flex items-center justify-center p-1">
-                        <img src="${page.thumbnail}" class="max-h-full max-w-full shadow-sm">
+                        <img src="${page.thumbnail}" class="max-h-full max-w-full shadow-sm object-contain">
                     </div>
                     <div class="p-2 bg-white flex items-center justify-between border-t text-[10px]">
                         <span class="bg-gray-800 text-white px-1.5 py-0.5 rounded font-bold">${idx + 1}</span>
-                        <span class="truncate max-w-[80px] text-gray-500 px-1">${page.fileName}</span>
-                        <button onclick="removePage('${page.id}')" class="text-gray-300 hover:text-red-500">
+                        <span class="truncate max-w-[80px] text-gray-500 px-1 font-medium">${page.fileName}</span>
+                        <button onclick="removePage('${page.id}')" class="text-gray-300 hover:text-red-500 transition-colors">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>
@@ -282,43 +304,42 @@
         }
 
         window.removePage = (id) => {
+            const page = pages.find(p => p.id === id);
+            if (page && page.type === 'image') URL.revokeObjectURL(page.thumbnail);
             pages = pages.filter(p => p.id !== id);
             renderGrid();
         };
 
         resetBtn.onclick = () => {
-            if (confirm('すべてのページをクリアしますか？')) {
-                pages = [];
-                renderGrid();
-            }
+            pages.forEach(p => { if (p.type === 'image') URL.revokeObjectURL(p.thumbnail); });
+            pages = [];
+            renderGrid();
         };
 
-        // PDF作成メインロジック
+        // PDF生成
         mainActionBtn.onclick = async () => {
-            document.getElementById('loading-text').innerText = 'PDFを生成しています...';
+            document.getElementById('loading-text').innerText = 'PDFを生成中...';
             loading.classList.remove('hidden');
 
             try {
                 if (currentTab === 'convert' && document.querySelector('input[name="convert-mode"]:checked').value === 'single') {
-                    // 個別変換
                     for (let i = 0; i < pages.length; i++) {
-                        const pdf = await createPdfFromSelection([pages[i]]);
-                        downloadPdf(pdf, `converted_${i + 1}.pdf`);
+                        const bytes = await createPdfBytesFromSelection([pages[i]]);
+                        downloadPdf(bytes, `converted_${i + 1}.pdf`);
                     }
                 } else {
-                    // 通常の結合・編集・番号付与
-                    const pdf = await createPdfFromSelection(pages);
-                    downloadPdf(pdf, `output_${new Date().getTime()}.pdf`);
+                    const bytes = await createPdfBytesFromSelection(pages);
+                    downloadPdf(bytes, `output_${new Date().getTime()}.pdf`);
                 }
             } catch (err) {
                 console.error(err);
-                alert('エラーが発生しました: ' + err.message);
+                showMessage('PDF生成エラー', err.message || 'PDFの作成中に不明なエラーが発生しました。画像の形式を確認してください。');
             }
 
             loading.classList.add('hidden');
         };
 
-        async function createPdfFromSelection(selection) {
+        async function createPdfBytesFromSelection(selection) {
             const outDoc = await PDFDocument.create();
             const font = await outDoc.embedFont(StandardFonts.Helvetica);
             const totalPages = selection.length;
@@ -331,34 +352,29 @@
                     const [copied] = await outDoc.copyPages(src, [item.pageNum - 1]);
                     outDoc.addPage(copied);
                 } else {
-                    const imgBytes = await fetch(item.sourceData).then(r => r.arrayBuffer());
-                    const img = item.sourceData.includes('png') ? await outDoc.embedPng(imgBytes) : await outDoc.embedJpg(imgBytes);
+                    const imgBytes = item.sourceData;
+                    // pdf-libはPNGとJPGのみ対応
+                    const img = (item.mimeType === 'image/png') ? await outDoc.embedPng(imgBytes) : await outDoc.embedJpg(imgBytes);
                     const page = outDoc.addPage([img.width, img.height]);
                     page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
                 }
 
-                // ページ番号付与 (numberタブの場合のみ)
                 if (currentTab === 'number') {
                     const lastPage = outDoc.getPage(outDoc.getPageCount() - 1);
                     const { width, height } = lastPage.getSize();
                     const fontSize = parseInt(document.getElementById('num-size').value) || 12;
                     const pos = document.getElementById('num-pos').value;
                     
-                    let currentPageNum = document.getElementById('num-start-one').checked ? i + 1 : i;
-                    let pageText = currentPageNum.toString();
-                    
-                    if (format === 'ratio') {
-                        pageText = `${currentPageNum} / ${totalPages}`;
-                    }
+                    let curNum = document.getElementById('num-start-one').checked ? i + 1 : i;
+                    let pageText = (format === 'ratio') ? `${curNum} / ${totalPages}` : curNum.toString();
                     
                     const textWidth = font.widthOfTextAtSize(pageText, fontSize);
-                    
-                    let x = width / 2 - textWidth / 2, y = 20;
+                    let x = width / 2 - textWidth / 2, y = 25;
                     if (pos === 'bottom-left') x = 30;
                     if (pos === 'bottom-right') x = width - textWidth - 30;
-                    if (pos === 'top-center') y = height - 30;
+                    if (pos === 'top-center') y = height - 35;
 
-                    lastPage.drawText(pageText, { x, y, size: fontSize, font, color: rgb(0.1, 0.1, 0.1) });
+                    lastPage.drawText(pageText, { x, y, size: fontSize, font, color: rgb(0, 0, 0) });
                 }
             }
             return await outDoc.save();
@@ -370,7 +386,9 @@
             const a = document.createElement('a');
             a.href = url;
             a.download = filename;
+            document.body.appendChild(a);
             a.click();
+            document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
     </script>
